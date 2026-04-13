@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AutoMarket — AI Marketing Engine</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.4/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:#0c0c0c;color:#e8e4dc;font-family:Georgia,'Times New Roman',serif}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.35}}
+@keyframes shimmer{0%{opacity:0.4}50%{opacity:0.8}100%{opacity:0.4}}
+input::placeholder,textarea::placeholder{color:#444}
+input:focus,textarea:focus{border-color:#C9A84C !important;outline:none}
+.fade-up{animation:fadeUp 0.5s ease forwards}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:#111}
+::-webkit-scrollbar-thumb{background:#2a2a2a;border-radius:2px}
+#initial-loader{position:fixed;inset:0;background:#0c0c0c;display:flex;align-items:center;justify-content:center;z-index:9999;transition:opacity 0.3s}
+#initial-loader.hidden{opacity:0;pointer-events:none}
+</style>
+</head>
+<body>
+
+<!-- Initial loader shown while React + Babel parse -->
+
+<div id="initial-loader">
+  <div style="text-align:center">
+    <div style="width:36px;height:36px;border:2px solid #1e1e1e;border-top-color:#C9A84C;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px"></div>
+    <div style="font-family:'DM Sans',sans-serif;font-size:12px;color:#444;letter-spacing:0.15em;text-transform:uppercase">Loading AutoMarket</div>
+  </div>
+</div>
+
+<div id="root"></div>
+
+<script type="text/babel">
+const{useState,useCallback,useRef}=React;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+const API_TIMEOUT_MS = 45000; // 45 second timeout
+
+const PLANS = [
+  {
+    id: "starter", name: "Starter", price: 29, highlight: false,
+    features: ["3 marketing channels", "50 generations/month", "Cold email sequences", "Social media posts"],
+  },
+  {
+    id: "growth", name: "Growth", price: 79, highlight: true, badge: "MOST POPULAR",
+    features: ["All 4 channels", "Unlimited generations", "Email sequences", "Reddit & Quora copy", "Sales page rewriter", "Priority support"],
+  },
+  {
+    id: "scale", name: "Scale", price: 199, highlight: false,
+    features: ["Everything in Growth", "White-label", "API access", "Custom AI training", "Dedicated account manager"],
+  },
+];
+
+const TABS = [
+  { id: "email",   label: "Cold Email",  icon: "✉" },
+  { id: "twitter", label: "X Posts",     icon: "𝕏" },
+  { id: "reddit",  label: "Reddit",      icon: "◈" },
+  { id: "sales",   label: "Sales Page",  icon: "◆" },
+];
+
+const PROMPTS = {
+  email: (url, name) =>
+`You are a world-class cold email copywriter. Write a 3-email cold email sequence to sell this product:
+
+Product name: ${name}
+Product URL: ${url}
+
+Write all 3 emails now. Use this exact format:
+
+═══════════════════════════════
+EMAIL 1 — Day 0 (First contact)
+═══════════════════════════════
+Subject: [write a specific, curiosity-driven subject line]
+Preview text: [write 45-55 character preview text]
+
+[Write a 130-160 word email body. Start with a bold hook. Identify 1 specific pain point. Introduce the product as the solution. End with ONE clear CTA and the URL: ${url}]
+
+═══════════════════════════════
+EMAIL 2 — Day 3 (Value follow-up)
+═══════════════════════════════
+Subject: [write a follow-up subject — reference Email 1 subtly]
+Preview text: [45-55 characters]
+
+[Write a 110-130 word email. Lead with ONE concrete example of value or a mini case study. Reinforce the benefit. End with URL: ${url}]
+
+═══════════════════════════════
+EMAIL 3 — Day 7 (Final nudge)
+═══════════════════════════════
+Subject: [write a final nudge subject — create soft urgency]
+Preview text: [45-55 characters]
+
+[Write a 90-110 word email. Acknowledge they may be busy. Restate the core value in 1 sentence. Remove risk (mention guarantee if applicable). End with URL: ${url}]
+
+Rules: No corporate tone. Write like a real person. No empty phrases like "I hope this finds you well."`,
+
+  twitter: (url, name) =>
+`You are a viral content strategist. Create 5 X (Twitter) posts to promote this product:
+
+Product: ${name}
+URL: ${url}
+
+Write exactly 5 posts, one per format:
+
+POST 1 — BEFORE/AFTER
+[Hook showing transformation. Under 220 chars + URL + 2 hashtags]
+
+POST 2 — CONTROVERSIAL OPINION  
+[Challenge a common belief in the niche. Under 220 chars + URL + 2 hashtags]
+
+POST 3 — NUMBERED LIST
+[5 specific tips or facts. Under 220 chars + URL + 2 hashtags]
+
+POST 4 — PERSONAL STORY
+[Relatable struggle → solution. Under 220 chars + URL + 2 hashtags]
+
+POST 5 — SOCIAL PROOF
+[Result or testimonial style. Under 220 chars + URL + 2 hashtags]
+
+RULES FOR EVERY POST:
+- End with: ${url}
+- First line = scroll-stopping hook
+- Sound human, never like an ad
+- Total characters per post (including URL) must be under 270`,
+
+  reddit: (url, name) =>
+`You are a Reddit community expert. Write 5 authentic Reddit posts to genuinely promote this product:
+
+Product: ${name}  
+URL: ${url}
+
+Write one post per subreddit: r/ChatGPT, r/freelance, r/marketing, r/entrepreneur, r/artificial
+
+For EACH post, use this exact format:
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+SUBREDDIT: r/[subreddit name]
+━━━━━━━━━━━━━━━━━━━━━━━━
+TITLE: [Specific, helpful title — sounds like a real Reddit post, not marketing]
+
+BODY:
+[Paragraph 1: Share genuine insight, personal experience, or useful information relevant to that community — 3-4 sentences]
+
+[Paragraph 2: Expand on the insight with a concrete example or tip — 2-3 sentences]  
+
+[Paragraph 3: Naturally transition: "I also found a resource that helped with this..." or similar. Mention the product as a tool you found useful, NOT as something you made. End with: ${url}]
+
+RULES: Peer-to-peer tone. Never salesy. Each post should feel native to that specific subreddit's culture.`,
+
+  sales: (url, name) =>
+`You are a world-class direct-response copywriter. Rewrite this product's sales page to maximize conversions.
+
+Product: ${name}
+URL: ${url}
+
+Write the complete sales page copy now:
+
+━━━ HEADLINE ━━━
+[One powerful headline. Specific outcome. Max 10 words. No fluff.]
+
+━━━ SUBHEADLINE ━━━
+[One sentence. Clear value proposition. Who it's for + what they get.]
+
+━━━ OPENING (2 paragraphs) ━━━
+[Paragraph 1: Paint the pain in vivid, specific detail. Make them nod yes.]
+[Paragraph 2: Tease the solution. Build curiosity without revealing everything.]
+
+━━━ WHAT YOU GET ━━━
+• [Outcome, not feature. What changes for them?]
+• [Outcome]
+• [Outcome]
+• [Outcome]
+• [Outcome]
+• [Outcome — bonus or most surprising benefit]
+
+━━━ THIS IS FOR YOU IF ━━━
+• [Specific situation your ideal buyer is in right now]
+• [Another specific situation]
+• [Third specific situation]
+
+━━━ NOT FOR YOU IF ━━━
+• [Honest filter that builds trust]
+• [Second filter]
+
+━━━ RESULTS YOU CAN EXPECT ━━━
+• [Specific, time-bound, believable outcome]
+• [Second specific outcome]
+• [Third specific outcome]
+
+━━━ PRICING ━━━
+Regular price: [suggest a higher anchor price]
+Your price today: [suggest the actual price]
+[One line of urgency without false scarcity]
+
+━━━ CTA BUTTON TEXT ━━━
+[5-7 words. Action-oriented. Outcome-focused.]
+
+━━━ GUARANTEE ━━━
+[One sentence. Simple. No fine print. Remove all risk.]
+
+Tone: Direct. Confident. Zero hype. Sounds like a trusted expert, not a marketer.`,
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UTILITIES
+// ─────────────────────────────────────────────────────────────────────────────
+
+function safeCopy(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).catch(() => {});
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      try { document.execCommand("copy"); } catch(e) {}
+      document.body.removeChild(ta);
+    }
+  } catch(e) {}
+}
+
+function scrollTo(id) {
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: "smooth" });
+}
+
+function getProductName(url) {
+  if (!url || !url.trim()) return "Your Product";
+  try {
+    const pathname = new URL(url.trim()).pathname;
+    const segments = pathname.split("/").filter(Boolean);
+    const last = segments[segments.length - 1] || "";
+    if (!last) return "Your Product";
+    return last
+      .replace(/[-_]+/g, " ")
+      .trim()
+      .replace(/\b\w/g, (c, i, s) => {
+        // Don't capitalize single letters like "i" unless it's the word "I"
+        const word = s.slice(i).match(/^\w+/)[0];
+        return word.length === 1 && word !== "i" ? c : c.toUpperCase();
+      });
+  } catch {
+    // Not a valid URL - use as-is or extract last path segment
+    const parts = url.split("/").filter(Boolean);
+    const last = parts[parts.length - 1] || url;
+    return last.replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase()) || "Your Product";
+  }
+}
+
+function isValidUrl(str) {
+  if (!str || str.trim().length < 3) return false;
+  // Accept any string with at least a dot (loose validation - product URLs vary)
+  const s = str.trim();
+  try { new URL(s); return true; } catch {}
+  // Accept strings that look like URLs without protocol
+  return /^[\w-]+(\.[\w-]+)+(\/[\w\-._~:/?#[\]@!$&'()*+,;=%]*)?$/.test(s);
+}
+
+function isValidEmail(str) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(str.trim());
+}
+
+function fetchWithTimeout(url, options, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`Request timed out after ${timeoutMs/1000} seconds. Please try again.`));
+    }, timeoutMs);
+    fetch(url, { ...options, signal: controller.signal })
+      .then(res => { clearTimeout(timer); resolve(res); })
+      .catch(err => { clearTimeout(timer); reject(err); });
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SHARED STYLES
+// ─────────────────────────────────────────────────────────────────────────────
+
+const S = {
+  nav: { borderBottom: "1px solid #1a1a1a", padding: "16px 24px", display: "flex", alignItems: "center", gap: "12px", background: "#0c0c0c", position: "sticky", top: 0, zIndex: 100 },
+  logo: { width: 32, height: 32, background: "#C9A84C", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: "bold", color: "#000", fontFamily: "'DM Sans',sans-serif", flexShrink: 0 },
+  container: { maxWidth: "860px", margin: "0 auto", padding: "40px 20px" },
+  gold: { color: "#C9A84C" },
+  mono: { fontFamily: "'DM Sans',sans-serif" },
+  card: { background: "#111", border: "1px solid #1e1e1e", borderRadius: "12px", padding: "24px" },
+  input: { width: "100%", background: "#0c0c0c", border: "1px solid #2a2a2a", borderRadius: "8px", padding: "13px 16px", color: "#e8e4dc", fontSize: "14px", fontFamily: "'DM Sans',sans-serif", outline: "none", boxSizing: "border-box", transition: "border-color 0.15s" },
+  label: { fontFamily: "'DM Sans',sans-serif", fontSize: "11px", color: "#555", letterSpacing: "0.15em", textTransform: "uppercase", display: "block", marginBottom: "8px" },
+  btnGold: { padding: "13px 24px", background: "#C9A84C", color: "#000", border: "none", borderRadius: "8px", cursor: "pointer", fontFamily: "'DM Sans',sans-serif", fontSize: "13px", fontWeight: "600", letterSpacing: "0.06em", width: "100%", transition: "opacity 0.15s" },
+  btnOutline: { padding: "10px 20px", background: "transparent", color: "#666", border: "1px solid #2a2a2a", borderRadius: "8px", cursor: "pointer", fontFamily: "'DM Sans',sans-serif", fontSize: "13px", transition: "border-color 0.15s, color 0.15s" },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPINNER
+// ─────────────────────────────────────────────────────────────────────────────
+
+function Spinner({ size = 24, color = "#C9A84C" }) {
+  return (
+    <div style={{ width: size, height: size, border: "2px solid #2a2a2a", borderTopColor: color, borderRadius: "50%", animation: "spin 0.7s linear infinite", margin: "0 auto", flexShrink: 0 }} />
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DEMO APP
+// ─────────────────────────────────────────────────────────────────────────────
+
+function DemoApp({ onBack }) {
+  const [url, setUrl] = useState("");
+  const [activeTab, setActiveTab] = useState("email");
+  const [results, setResults] = useState({});        // { tabId: string }
+  const [loadingTab, setLoadingTab] = useState(null); // which tab is currently loading
+  const [analyzed, setAnalyzed] = useState(false);
+  const [copied, setCopied] = useState("");
+  const [usage, setUsage] = useState(0);
+  const [apiError, setApiError] = useState("");
+  const [urlError, setUrlError] = useState("");
+  const currentUrlRef = useRef(""); // tracks URL at time of each generate call
+
+  // Validate URL when it changes
+  const handleUrlChange = (val) => {
+    setUrl(val);
+    if (urlError && val.trim()) setUrlError("");
+  };
+
+  const generate = useCallback(async (tabId, targetUrl) => {
+    if (!targetUrl || !targetUrl.trim()) return;
+    if (loadingTab !== null) return; // prevent concurrent requests
+
+    setLoadingTab(tabId);
+    setApiError("");
+    currentUrlRef.current = targetUrl;
+
+    const productName = getProductName(targetUrl);
+
+    try {
+      const res = await fetchWithTimeout(
+        "https://automarket-proxy.zukeabura.workers.dev",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" }, // Auth handled by Worker
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 4000,
+            messages: [{ role: "user", content: PROMPTS[tabId](targetUrl.trim(), productName) }],
+          }),
+        },
+        API_TIMEOUT_MS
+      );
+
+      let data;
+      try { data = await res.json(); }
+      catch { throw new Error("Server returned an unreadable response. Please try again."); }
+
+      if (!res.ok) {
+        const errMsg = data?.error?.message || "";
+        if (res.status === 401) throw new Error("API authentication failed. Please reload and try again.");
+        if (res.status === 429) throw new Error("Too many requests. Please wait 30 seconds and try again.");
+        if (res.status === 529 || res.status === 503) throw new Error("AI service is temporarily overloaded. Please try again in a moment.");
+        throw new Error(errMsg || `Request failed (${res.status}). Please try again.`);
+      }
+
+      const textBlocks = (data.content || []).filter(c => c.type === "text");
+      const text = textBlocks.map(c => c.text).join("").trim();
+
+      if (!text) throw new Error("AI returned empty content. Please try again.");
+
+      // Only update results if URL hasn't changed since request started
+      if (currentUrlRef.current === targetUrl) {
+        setResults(prev => ({ ...prev, [tabId]: text }));
+        setAnalyzed(true);
+        setUsage(u => u + 1);
+      }
+
+    } catch (e) {
+      let msg = e.message || "Something went wrong. Please try again.";
+      if (msg.includes("aborted") || msg.includes("AbortError")) {
+        msg = `Request timed out after ${API_TIMEOUT_MS/1000} seconds. Please try again.`;
+      } else if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("fetch")) {
+        msg = "Network error — check your internet connection. If deployed, verify your Worker URL is correct.";
+      }
+      setApiError(msg);
+    } finally {
+      setLoadingTab(null);
+    }
+  }, [loadingTab]);
+
+  const handleGenerate = () => {
+    if (!url.trim()) { setUrlError("Please enter a product URL"); return; }
+    if (!isValidUrl(url)) { setUrlError("Please enter a valid URL (e.g. https://yourname.gumroad.com/l/product)"); return; }
+    if (loadingTab !== null) return;
+    setUrlError("");
+    setApiError("");
+    setResults({});
+    setAnalyzed(false);
+    generate(activeTab, url);
+  };
+
+  const handleTabClick = (tabId) => {
+    if (tabId === activeTab && loadingTab === tabId) return; // already loading this tab
+    setActiveTab(tabId);
+    setApiError("");
+    // Only auto-generate if we have a valid URL and no result yet for this tab
+    if (analyzed && !results[tabId] && loadingTab === null && url.trim()) {
+      generate(tabId, url);
+    }
+  };
+
+  const handleCopy = (text, key) => {
+    safeCopy(text);
+    setCopied(key);
+    setTimeout(() => setCopied(""), 2000);
+  };
+
+  const handleRedo = (tabId) => {
+    if (loadingTab !== null || !url.trim()) return;
+    setApiError("");
+    setResults(prev => { const n = { ...prev }; delete n[tabId]; return n; });
+    generate(tabId, url);
+  };
+
+  const isLoading = loadingTab !== null;
+  const isActiveTabLoading = loadingTab === activeTab;
+  const showResultsPanel = analyzed || isLoading;
+
+  // Stale results warning: shown if URL was changed after generating
+  const urlChangedAfterGenerate = analyzed && url !== currentUrlRef.current;
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#0c0c0c", color: "#e8e4dc" }}>
+      <div style={S.nav}>
+        <div style={S.logo}>A</div>
+        <div style={{ fontFamily: "'Playfair Display',serif", fontSize: "17px", fontWeight: "700" }}>AutoMarket</div>
+        <div style={{ marginLeft: "auto", display: "flex", gap: "12px", alignItems: "center" }}>
+          <div style={{ ...S.mono, fontSize: "12px", color: "#444" }}>
+            Generations: <span style={{ color: "#C9A84C", fontWeight: "600" }}>{usage}</span>
+          </div>
+          <button onClick={onBack} style={{ ...S.btnOutline, padding: "6px 14px", fontSize: "11px" }}>← Back</button>
+        </div>
+      </div>
+
+      <div style={S.container}>
+
+        {/* URL Input */}
+        <div style={{ ...S.card, marginBottom: "24px" }}>
+          <label style={S.label}>Product URL</label>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            <input
+              value={url}
+              onChange={e => handleUrlChange(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && !isLoading && handleGenerate()}
+              placeholder="https://yourname.gumroad.com/l/your-product"
+              style={{ ...S.input, flex: 1, minWidth: "200px", borderColor: urlError ? "#e05555" : "#2a2a2a" }}
+              aria-label="Product URL"
+            />
+            <button
+              onClick={handleGenerate}
+              disabled={isLoading}
+              style={{ ...S.btnGold, width: "auto", padding: "13px 24px", minWidth: "130px", opacity: isLoading ? 0.5 : 1, cursor: isLoading ? "not-allowed" : "pointer" }}
+            >
+              {isLoading ? <Spinner size={18} color="#000" /> : "Generate →"}
+            </button>
+          </div>
+
+          {urlError && (
+            <div style={{ ...S.mono, fontSize: "12px", color: "#e05555", marginTop: "8px" }}>{urlError}</div>
+          )}
+
+          {urlChangedAfterGenerate && (
+            <div style={{ ...S.mono, fontSize: "12px", color: "#C9A84C", marginTop: "8px" }}>
+              ⚠️ URL changed — click Generate to get fresh results for the new URL.
+            </div>
+          )}
+
+          {/* Channel tabs */}
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "16px" }}>
+            {TABS.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setActiveTab(t.id)}
+                style={{ padding: "8px 14px", background: activeTab === t.id ? "#C9A84C" : "#1a1a1a", color: activeTab === t.id ? "#000" : "#666", border: `1px solid ${activeTab === t.id ? "#C9A84C" : "#2a2a2a"}`, borderRadius: "6px", cursor: "pointer", fontFamily: "'DM Sans',sans-serif", fontSize: "12px", fontWeight: activeTab === t.id ? "600" : "400", transition: "all 0.15s" }}
+              >
+                {t.icon} {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Error banner */}
+        {apiError && (
+          <div style={{ background: "#1a0808", border: "1px solid #5c1a1a", borderRadius: "8px", padding: "14px 18px", marginBottom: "16px", display: "flex", alignItems: "flex-start", gap: "12px", justifyContent: "space-between" }}>
+            <span style={{ ...S.mono, fontSize: "13px", color: "#e05555", lineHeight: "1.5" }}>⚠️ {apiError}</span>
+            <button onClick={() => setApiError("")} style={{ ...S.mono, fontSize: "16px", color: "#888", background: "none", border: "none", cursor: "pointer", flexShrink: 0, lineHeight: "1", padding: "0 0 0 8px" }}>✕</button>
+          </div>
+        )}
+
+        {/* Results panel */}
+        {showResultsPanel && (
+          <div>
+            {/* Tab switcher with status indicators */}
+            <div style={{ display: "flex", gap: "4px", background: "#111", border: "1px solid #1e1e1e", borderRadius: "10px", padding: "4px", marginBottom: "16px" }}>
+              {TABS.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => handleTabClick(t.id)}
+                  disabled={loadingTab === t.id && t.id !== activeTab}
+                  style={{ flex: 1, padding: "9px 6px", background: activeTab === t.id ? "#C9A84C" : "transparent", color: activeTab === t.id ? "#000" : results[t.id] ? "#aaa" : "#444", border: "none", borderRadius: "7px", cursor: "pointer", fontFamily: "'DM Sans',sans-serif", fontSize: "11px", fontWeight: activeTab === t.id ? "600" : "400", transition: "all 0.15s", display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}
+                >
+                  <span>{t.icon}</span>
+                  <span style={{ display: "none" }}>{t.label}</span>
+                  {/* Show label on wider screens */}
+                  <span style={{ fontSize: "11px" }}>{t.label.split(" ")[0]}</span>
+                  {results[t.id] && activeTab !== t.id && loadingTab !== t.id && (
+                    <span style={{ color: "#3ddc6e", fontSize: "9px", marginLeft: "2px" }}>✓</span>
+                  )}
+                  {loadingTab === t.id && activeTab !== t.id && (
+                    <Spinner size={9} color="#C9A84C" />
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* Content card */}
+            <div style={{ ...S.card, padding: "0", overflow: "hidden" }}>
+              {/* Card header */}
+              <div style={{ padding: "14px 20px", borderBottom: "1px solid #1a1a1a", display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                <span style={{ ...S.mono, fontSize: "11px", color: "#555", letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                  {TABS.find(t => t.id === activeTab)?.label || ""}
+                </span>
+                <div style={{ marginLeft: "auto", display: "flex", gap: "8px" }}>
+                  {results[activeTab] && (
+                    <>
+                      <button
+                        onClick={() => handleRedo(activeTab)}
+                        disabled={isLoading}
+                        style={{ padding: "5px 12px", background: "transparent", border: "1px solid #2a2a2a", borderRadius: "4px", color: "#555", fontSize: "11px", fontFamily: "'DM Sans',sans-serif", cursor: isLoading ? "not-allowed" : "pointer", opacity: isLoading ? 0.4 : 1 }}
+                        title="Regenerate this channel"
+                      >
+                        ↺ Redo
+                      </button>
+                      <button
+                        onClick={() => handleCopy(results[activeTab], activeTab)}
+                        style={{ padding: "5px 14px", background: copied === activeTab ? "#0f2e1a" : "#1a1a1a", border: `1px solid ${copied === activeTab ? "#1a5c2e" : "#2a2a2a"}`, borderRadius: "4px", color: copied === activeTab ? "#3ddc6e" : "#aaa", fontSize: "11px", fontFamily: "'DM Sans',sans-serif", cursor: "pointer", transition: "all 0.15s", fontWeight: "500" }}
+                      >
+                        {copied === activeTab ? "✓ Copied!" : "Copy All"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Content area */}
+              <div style={{ padding: "24px", minHeight: "320px", maxHeight: "520px", overflowY: "auto" }}>
+                {isActiveTabLoading ? (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "280px", gap: "16px" }}>
+                    <Spinner />
+                    <div style={{ ...S.mono, fontSize: "12px", color: "#555", animation: "pulse 1.5s ease-in-out infinite" }}>
+                      Generating {TABS.find(t => t.id === activeTab)?.label}...
+                    </div>
+                  </div>
+                ) : results[activeTab] ? (
+                  <pre style={{ ...S.mono, fontSize: "13px", lineHeight: "1.9", color: "#ccc", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                    {results[activeTab]}
+                  </pre>
+
+```
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "280px", gap: "16px" }}>
+                <div style={{ ...S.mono, fontSize: "13px", color: "#333" }}>No content yet for this channel</div>
+                <button
+                  onClick={() => { if (!isLoading && url.trim()) generate(activeTab, url); }}
+                  disabled={isLoading || !url.trim()}
+                  style={{ ...S.btnGold, width: "auto", padding: "11px 24px", opacity: isLoading ? 0.4 : 1, cursor: isLoading ? "not-allowed" : "pointer" }}
+                >
+                  Generate {TABS.find(t => t.id === activeTab)?.label} →
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Hint: other tabs available */}
+        {analyzed && Object.keys(results).length === 1 && !isLoading && (
+          <div style={{ ...S.mono, fontSize: "12px", color: "#444", textAlign: "center", marginTop: "12px" }}>
+            Click other tabs to generate more channel copy ↑
+          </div>
+        )}
+      </div>
+    )}
+
+    {/* Empty state */}
+    {!showResultsPanel && !apiError && (
+      <div style={{ textAlign: "center", padding: "60px 0" }}>
+        <div style={{ fontSize: "40px", marginBottom: "16px", opacity: 0.12 }}>✦</div>
+        <div style={{ ...S.mono, fontSize: "14px", color: "#333" }}>Enter a product URL above and click Generate</div>
+      </div>
+    )}
+
+    {/* Error-only state with retry */}
+    {!showResultsPanel && apiError && (
+      <div style={{ textAlign: "center", padding: "32px 0" }}>
+        <button onClick={handleGenerate} disabled={isLoading} style={{ ...S.btnGold, width: "auto", padding: "13px 28px" }}>
+          Retry →
+        </button>
+      </div>
+    )}
+  </div>
+</div>
+```
+
+);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LANDING PAGE
+// ─────────────────────────────────────────────────────────────────────────────
+
+function LandingPage({ onDemo }) {
+const [email, setEmail] = useState(””);
+const [emailError, setEmailError] = useState(””);
+const [status, setStatus] = useState(””); // “” | “done”
+const [count, setCount] = useState(() => {
+try { return 247 + JSON.parse(localStorage.getItem(“wl”) || “[]”).length; }
+catch { return 247; }
+});
+
+const handleEmailChange = (val) => {
+setEmail(val);
+if (emailError && val) setEmailError(””);
+};
+
+const submit = () => {
+if (!email.trim()) { setEmailError(“Please enter your email address”); return; }
+if (!isValidEmail(email)) { setEmailError(“Please enter a valid email address”); return; }
+setEmailError(””);
+try {
+const list = JSON.parse(localStorage.getItem(“wl”) || “[]”);
+if (!list.includes(email.trim())) {
+list.push(email.trim());
+localStorage.setItem(“wl”, JSON.stringify(list));
+setCount(c => c + 1);
+}
+} catch {}
+setStatus(“done”);
+};
+
+return (
+<div style={{ minHeight: “100vh”, background: “#0c0c0c”, color: “#e8e4dc” }}>
+<div style={S.nav}>
+<div style={S.logo}>A</div>
+<div>
+<div style={{ fontFamily: “‘Playfair Display’,serif”, fontSize: “17px”, fontWeight: “700” }}>AutoMarket</div>
+<div style={{ …S.mono, fontSize: “10px”, color: “#444”, letterSpacing: “0.15em”, textTransform: “uppercase” }}>AI Marketing Engine</div>
+</div>
+<div style={{ marginLeft: “auto” }}>
+<button onClick={onDemo} style={{ …S.btnOutline, padding: “7px 16px”, fontSize: “12px” }}>Try Demo</button>
+</div>
+</div>
+
+```
+  <div style={S.container}>
+
+    {/* Hero */}
+    <div style={{ textAlign: "center", marginBottom: "64px", paddingTop: "20px" }} className="fade-up">
+      <div style={{ display: "inline-block", padding: "4px 14px", border: "1px solid #2a2a1a", borderRadius: "20px", fontSize: "11px", color: "#C9A84C", fontFamily: "'DM Sans',sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "24px" }}>
+        🚀 Now in Early Access
+      </div>
+      <h1 style={{ fontFamily: "'Playfair Display',serif", fontSize: "clamp(36px,7vw,64px)", fontWeight: "900", lineHeight: "1.05", letterSpacing: "-0.02em", marginBottom: "20px" }}>
+        Your product.<br /><span style={S.gold}>Marketed by AI.</span>
+      </h1>
+      <p style={{ ...S.mono, fontSize: "16px", color: "#666", maxWidth: "480px", margin: "0 auto 36px", lineHeight: "1.7" }}>
+        Paste any product URL. Get cold emails, X posts, Reddit threads & a rewritten sales page — in seconds.
+      </p>
+      <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
+        <button onClick={onDemo} style={{ ...S.btnGold, width: "auto", padding: "14px 40px", fontSize: "15px" }}>
+          Try It Free →
+        </button>
+        <button
+          onClick={() => scrollTo("waitlist")}
+          style={{ ...S.btnOutline, padding: "14px 28px", fontSize: "15px" }}
+        >
+          Join Waitlist
+        </button>
+      </div>
+      <div style={{ ...S.mono, fontSize: "12px", color: "#2a2a2a", marginTop: "14px" }}>No signup required to demo</div>
+    </div>
+
+    {/* How it works */}
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: "16px", marginBottom: "64px" }}>
+      {[
+        ["01", "Paste URL", "Drop in your Gumroad, Shopify, or any product link"],
+        ["02", "AI Analyzes", "Claude reads your product and understands your market"],
+        ["03", "Get Copy", "Cold emails, social posts, Reddit & sales page — ready to use"],
+      ].map(([n, t, d]) => (
+        <div key={n} style={{ ...S.card, textAlign: "center" }}>
+          <div style={{ ...S.mono, fontSize: "11px", color: "#C9A84C", letterSpacing: "0.15em", marginBottom: "10px" }}>{n}</div>
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: "18px", fontWeight: "700", marginBottom: "8px" }}>{t}</div>
+          <div style={{ ...S.mono, fontSize: "13px", color: "#666", lineHeight: "1.6" }}>{d}</div>
+        </div>
+      ))}
+    </div>
+
+    {/* Pricing */}
+    <div style={{ textAlign: "center", marginBottom: "32px" }}>
+      <h2 style={{ fontFamily: "'Playfair Display',serif", fontSize: "32px", fontWeight: "700", marginBottom: "8px" }}>Simple pricing</h2>
+      <p style={{ ...S.mono, fontSize: "14px", color: "#555" }}>Early members get 50% off forever.</p>
+    </div>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: "16px", marginBottom: "80px" }}>
+      {PLANS.map(plan => (
+        <div
+          key={plan.id}
+          style={{ ...S.card, border: `1px solid ${plan.highlight ? "#C9A84C" : "#1e1e1e"}`, background: plan.highlight ? "#130f00" : "#111", position: "relative", textAlign: "center" }}
+        >
+          {plan.badge && (
+            <div style={{ position: "absolute", top: "-11px", left: "50%", transform: "translateX(-50%)", background: "#C9A84C", color: "#000", fontSize: "9px", fontWeight: "700", fontFamily: "'DM Sans',sans-serif", letterSpacing: "0.12em", padding: "3px 12px", borderRadius: "10px", whiteSpace: "nowrap" }}>
+              {plan.badge}
+            </div>
+          )}
+          <div style={{ ...S.mono, fontSize: "11px", color: "#555", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "6px" }}>{plan.name}</div>
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: "38px", fontWeight: "700", color: plan.highlight ? "#C9A84C" : "#e8e4dc", lineHeight: "1" }}>${plan.price}</div>
+          <div style={{ ...S.mono, fontSize: "11px", color: "#444", marginBottom: "16px", marginTop: "2px" }}>/month</div>
+          <div style={{ borderTop: "1px solid #1e1e1e", paddingTop: "16px", marginBottom: "20px", textAlign: "left" }}>
+            {plan.features.map((f, i) => (
+              <div key={i} style={{ ...S.mono, fontSize: "12px", color: "#777", marginBottom: "8px", display: "flex", gap: "8px" }}>
+                <span style={{ color: "#C9A84C", flexShrink: 0 }}>✓</span>{f}
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={() => scrollTo("waitlist")}
+            style={{ ...S.btnGold, background: plan.highlight ? "#C9A84C" : "transparent", color: plan.highlight ? "#000" : "#888", border: plan.highlight ? "none" : "1px solid #333" }}
+          >
+            Join Waitlist
+          </button>
+        </div>
+      ))}
+    </div>
+
+    {/* Waitlist */}
+    <div id="waitlist" style={{ textAlign: "center", padding: "48px 0 80px" }}>
+      <div style={{ display: "inline-block", padding: "4px 14px", border: "1px solid #2a2a1a", borderRadius: "20px", fontSize: "11px", color: "#C9A84C", fontFamily: "'DM Sans',sans-serif", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "20px" }}>
+        Early Access
+      </div>
+      <h2 style={{ fontFamily: "'Playfair Display',serif", fontSize: "36px", fontWeight: "900", letterSpacing: "-0.02em", marginBottom: "12px" }}>
+        Get early access
+      </h2>
+      <p style={{ ...S.mono, fontSize: "15px", color: "#666", maxWidth: "400px", margin: "0 auto 8px", lineHeight: "1.6" }}>
+        Be first when we launch. Early members get <span style={{ color: "#C9A84C" }}>50% off forever.</span>
+      </p>
+      <div style={{ ...S.mono, fontSize: "13px", color: "#555", marginBottom: "32px" }}>
+        <span style={{ color: "#C9A84C", fontWeight: "600" }}>{count}</span> people already on the list
+      </div>
+
+      {status === "done" ? (
+        <div style={{ maxWidth: "420px", margin: "0 auto", background: "#0f2e1a", border: "1px solid #1a5c2e", borderRadius: "12px", padding: "32px" }}>
+          <div style={{ fontSize: "28px", marginBottom: "12px" }}>✦</div>
+          <div style={{ fontFamily: "'Playfair Display',serif", fontSize: "20px", fontWeight: "700", color: "#3ddc6e", marginBottom: "8px" }}>You're on the list!</div>
+          <div style={{ ...S.mono, fontSize: "13px", color: "#888", lineHeight: "1.6" }}>We'll email you at launch. Early members get 50% off forever.</div>
+        </div>
+      ) : (
+        <div style={{ maxWidth: "440px", margin: "0 auto" }}>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            <input
+              value={email}
+              onChange={e => handleEmailChange(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && submit()}
+              placeholder="your@email.com"
+              type="email"
+              style={{ ...S.input, flex: 1, minWidth: "180px", background: "#111", borderColor: emailError ? "#e05555" : "#2a2a2a" }}
+            />
+            <button
+              onClick={submit}
+              style={{ ...S.btnGold, width: "auto", padding: "13px 24px", minWidth: "100px" }}
+            >
+              Join →
+            </button>
+          </div>
+          {emailError && (
+            <div style={{ ...S.mono, fontSize: "12px", color: "#e05555", marginTop: "8px", textAlign: "left" }}>{emailError}</div>
+          )}
+          <p style={{ ...S.mono, fontSize: "11px", color: "#444", marginTop: "10px" }}>No spam. Unsubscribe anytime.</p>
+        </div>
+      )}
+    </div>
+
+  </div>
+</div>
+```
+
+);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ROOT APP
+// ─────────────────────────────────────────────────────────────────────────────
+
+function App() {
+const [screen, setScreen] = useState(“landing”);
+if (screen === “demo”) return <DemoApp onBack={() => setScreen(“landing”)} />;
+return <LandingPage onDemo={() => setScreen(“demo”)} />;
+}
+
+// Hide loader once React renders
+ReactDOM.createRoot(document.getElementById(“root”)).render(<App />);
+const loader = document.getElementById(“initial-loader”);
+if (loader) {
+loader.classList.add(“hidden”);
+setTimeout(() => { if (loader.parentNode) loader.parentNode.removeChild(loader); }, 400);
+}
+</script>
+
+</body>
+</html>
